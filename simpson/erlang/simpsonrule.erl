@@ -1,30 +1,31 @@
 -module(simpsonrule).
 -compile([export_all]).
 
-compute(Idx, Acc, A, H, Fun) ->
-    X = A + Idx * H,
+-define(FUN(X), math:sin(X)).
+
+-spec(compute(integer(), float(), float(), float()) -> float()).
+compute(Idx, Acc, A, H) ->
     case Idx rem 2 of
         0 ->
-            NewAcc = Acc + apply(Fun, [X]) * 2;
+            NewAcc = Acc + ?FUN(A + Idx * H) * 2;
         _ ->
-            NewAcc = Acc + apply(Fun, [X]) * 4
+            NewAcc = Acc + ?FUN(A + Idx * H) * 4
     end,
     NewAcc.
 
-cycle(Start, End, Step, Fun, Args, Acc) ->
-    NextStep = Start + Step,
+-spec(cycle(integer(), integer(), list(), float()) -> float()).
+cycle(Start, End, Args=[A, H], Acc) ->
+    NextStep = Start + 1,
     case NextStep > End of 
-        true ->
-            Acc;
-        false ->
-            NewAcc = apply(Fun, [Start, Acc|Args]),
-            cycle(NextStep, End, Step, Fun, Args, NewAcc)
+        true -> Acc;
+        false ->            
+            NewAcc = compute(Start, Acc, A, H),
+            cycle(NextStep, End, Args, NewAcc)
     end.
 
-cycle(Start, End, Args, Acc) ->
-    cycle(Start, End, 1, fun compute/5, Args, Acc).
-
-compute_proc(A, B, Rank, NumOfIter_, NumOfProcs, Fun, Pid) ->
+-spec(compute_proc(float(), float(), integer(), integer(), integer(), pid()) 
+      -> float()).
+compute_proc(A, B, Rank, NumOfIter_, NumOfProcs, Pid) ->
     NumOfIter = NumOfIter_ + (NumOfIter_ rem 2),
     LocalNumIter = NumOfIter div NumOfProcs, 
     Start = Rank * LocalNumIter,
@@ -37,13 +38,14 @@ compute_proc(A, B, Rank, NumOfIter_, NumOfProcs, Fun, Pid) ->
     end,
     io:format("Proc[~p]: iterating from ~p to ~p~n", [Rank, Start, End]),   
     H = (B - A) / NumOfIter,
-    Result = cycle(Start, End, [A, H, Fun], 0.0),
+    Result = cycle(Start, End, [A, H], 0.0),
 
     %% Send the result to the main proc.
     Pid ! {value, Result},
 
     Result.
 
+-spec(wait(integer(), [float()]) -> [float()]).
 wait(0, Vals) ->
     Vals;
 wait(N, Vals) ->
@@ -57,16 +59,19 @@ wait(N, Vals) ->
             Vals
     end.
 
+-spec(get_host() -> [integer()]).
 get_host() ->
     N = node(),
     S = atom_to_list(N),
     Idx = string:chr(S, $@),
     string:substr(S, Idx + 1).
 
+-spec(spawn_at_slave({integer(), {atom(), atom()}}, [any()]) -> pid()).
 spawn_at_slave({SlaveNum, {ok, Node}}, [A, B |Args]) ->
     spawn(Node, ?MODULE, compute_proc, [A, B, SlaveNum |Args]).
 
-main_proc(A, B, NumOfIter, NumOfProcs, Fun) ->
+-spec(main_proc(float(), float(), integer(), integer()) -> float()).
+main_proc(A, B, NumOfIter, NumOfProcs) ->
     Host = get_host(),
     io:format("Hostname: ~s~n", [Host]),
 
@@ -76,25 +81,25 @@ main_proc(A, B, NumOfIter, NumOfProcs, Fun) ->
                                                "slave" ++ integer_to_list(X))}
                        end,
                        lists:seq(1, NumOfProcs - 1)),
-    Args = [A, B, NumOfIter, NumOfProcs, Fun, self()],
+    Args = [A, B, NumOfIter, NumOfProcs, self()],
     lists:foreach(fun(X) -> spawn_at_slave(X, Args) end, Slaves),
 
     H = (B - A) / NumOfIter,
-    compute_proc(A, B, 0, NumOfIter, NumOfProcs, Fun, self()),
+    compute_proc(A, B, 0, NumOfIter, NumOfProcs, self()),
     Vals = wait(NumOfProcs, []),
 
     % stop slave nodes
     lists:foreach(fun(X) -> slave:stop(X) end, nodes()),
     
     R = lists:sum(Vals),
-    Result = (R + Fun(B)) * (H/3.0),
+    Result = (R + ?FUN(B)) * (H/3.0),
     Result.
 
     
-
-start(_Args) ->
-    {NumOfProcs, NumOfIter, A, B} = {2, 100000000, 0.0, 1.0}, 
-    R = main_proc(A, B, NumOfIter, NumOfProcs, fun math:sin/1),
+-spec(start() -> any()).
+start() ->
+    {NumOfProcs, NumOfIter, A, B} = {2, 100000000, 0.0, 10.0}, 
+    R = main_proc(A, B, NumOfIter, NumOfProcs),
     io:format("Result: ~p~n", [R]),
     init:stop(0).
 
