@@ -1,2 +1,4 @@
 Simpson's rule is a method for numerical integration, the numerical approximation of definite integrals. 
 See: http://en.wikipedia.org/wiki/Simpson%27s_rule
+
+I made some changes to the Erlang added annotations and compile with +native and gained some speed. See: http://permalink.gmane.org/gmane.comp.lang.erlang.general/54102
